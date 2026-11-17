@@ -134,6 +134,16 @@ const check = (name, ok, detail = '') => {
     if (mistake === 3) await trigger('right');
     await slash(hand, (s.correct + 2) % 5);
     s = await until(`mistake ${mistake} costs a life (${hand} hand)`, (s) => s.lives === 3 - mistake);
+    if (mistake === 1) {
+      // the horizon tips and comes back
+      let most = 0;
+      for (let i = 0; i < 400 && (await snap()).state === 'resolving'; i++) {
+        most = Math.max(most, (await snap()).lean);
+        await page.waitForTimeout(20);
+      }
+      check('the tower leans on a mistake', most > 2, `up to ${most.toFixed(1)}°`);
+      check('…and stands straight again', (await snap()).lean === 0);
+    }
     if (shots && mistake === 1) {
       await frames(8);
       await page.screenshot({ path: path.join(shots, 'vr-mistake.png') });

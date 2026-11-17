@@ -387,6 +387,8 @@ export class Game {
       correct: this.correct,
       crates: this.crates.map((c) => ({ value: c.value, phase: c.phase, x: c.group.position.x, y: c.group.position.y, z: c.group.position.z })),
       worldY: this.world.group.position.y,
+      /** How far the horizon is tipped right now, in degrees. */
+      lean: THREE.MathUtils.radToDeg(this.world.tower.leanAngle()),
     };
   }
 

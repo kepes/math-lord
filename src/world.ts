@@ -243,9 +243,13 @@ const OUTER = 0.98;
 const SLAB = 0.7;
 const PIECES = 9;
 const GRAVITY = 9.8;
-/** How far the top leans towards the breaking side on a mistake (radians), and for how long. */
-const LEAN = THREE.MathUtils.degToRad(2.2);
-const LEAN_TIME = 1.15;
+/**
+ * How far the tower leans towards the breaking side on a mistake (radians), and for how long.
+ * The player stands on it, so what they see is the horizon tipping – a tilt of the floor alone
+ * goes unnoticed. Kept small and smooth: a rolling horizon is what makes people queasy.
+ */
+const LEAN = THREE.MathUtils.degToRad(3);
+const LEAN_TIME = 1.5;
 
 interface Piece {
   mesh: THREE.Mesh;
@@ -266,6 +270,9 @@ export interface Tower {
   collapse(): void;
   reset(): void;
   update(dt: number): void;
+  /** The level axis the tower is leaning around, and by how much right now (0 when upright). */
+  leanAxis: THREE.Vector3;
+  leanAngle(): number;
 }
 
 /** One piece of the ledge around the top: a ring segment, grass on top. */
@@ -368,7 +375,7 @@ function createTower(): Tower {
 
   let coreFalling = false;
   let coreSpeed = 0;
-  // the lean: around the middle of the top, so the floor tips but does not slide away
+  // the lean: around the middle of the top, so the player's footing does not slide away
   const leanAxis = new THREE.Vector3(1, 0, 0);
   let leanTime = LEAN_TIME;
 
@@ -407,15 +414,15 @@ function createTower(): Tower {
       core.position.set(0, 0, 0);
       core.rotation.set(0, 0, 0);
       leanTime = LEAN_TIME;
-      group.quaternion.identity();
+    },
+    leanAxis,
+    leanAngle() {
+      // out in the first third, back slowly, once – no swinging to and fro, no jolt at either end
+      const u = leanTime / LEAN_TIME;
+      return u >= 1 ? 0 : (LEAN * (1 - Math.cos(2 * Math.PI * u ** 0.7))) / 2;
     },
     update(dt) {
-      if (leanTime < LEAN_TIME) {
-        // out quickly, back slowly, once – no swinging to and fro
-        leanTime = Math.min(LEAN_TIME, leanTime + dt);
-        const u = leanTime / LEAN_TIME;
-        group.quaternion.setFromAxisAngle(leanAxis, LEAN * Math.sin(Math.PI * u ** 0.6));
-      }
+      leanTime = Math.min(LEAN_TIME, leanTime + dt);
       for (const p of pieces) {
         if (!p.falling || !p.mesh.visible) continue;
         if (p.delay > 0) {
@@ -485,6 +492,11 @@ export function createWorld(): World {
     update(dt) {
       clouds.rotation.y += dt * 0.004;
       tower.update(dt);
+      // the tower leans, the player with it: for them the world tips the other way, around their
+      // feet, while the tower stays put underfoot
+      const lean = tower.leanAngle();
+      group.quaternion.setFromAxisAngle(tower.leanAxis, -lean);
+      tower.group.quaternion.setFromAxisAngle(tower.leanAxis, lean);
     },
   };
 }
