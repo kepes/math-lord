@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@500;700;800&display=swap" />
+    <title>Math Lord</title>
+  </head>
+  <body>
+    <div id="stage"><canvas id="view" aria-label="A játék képe"></canvas></div>
+
+    <button id="menu" type="button" class="chip" hidden>Kilépés</button>
+
+    <main id="card">
+      <header>
+        <h1>Math Lord</h1>
+        <p class="lead">Állj a sziklatorony tetejére, és vágd szét a karddal azt a dobozt, amelyiken a helyes eredmény áll. Három hiba után leomlik a torony!</p>
+      </header>
+
+      <p id="result" class="result" hidden></p>
+
+      <div class="actions">
+        <button id="enter-vr" type="button" class="btn primary" disabled>Belépés VR-ba</button>
+        <button id="play-screen" type="button" class="btn">Játék képernyőn</button>
+      </div>
+      <p id="xr-status" class="note" role="status">VR keresése…</p>
+
+      <div class="field">
+        <span class="label" id="ops-label">Műveletek</span>
+        <div class="ops" role="group" aria-labelledby="ops-label">
+          <button id="op-add" type="button" data-op="+" aria-pressed="true"><b>+</b> összeadás</button>
+          <button id="op-sub" type="button" data-op="-" aria-pressed="true"><b>−</b> kivonás</button>
+          <button id="op-mul" type="button" data-op="*" aria-pressed="true"><b>×</b> szorzás</button>
+          <button id="op-div" type="button" data-op="/" aria-pressed="true"><b>:</b> osztás</button>
+        </div>
+      </div>
+
+      <details id="vr-settings">
+        <summary>Kép a szemüvegben</summary>
+        <div class="field">
+          <span class="label" id="res-label">Felbontás</span>
+          <div class="seg" id="res" role="group" aria-labelledby="res-label"></div>
+        </div>
+        <div class="field">
+          <span class="label" id="fov-label">Szélek elmosása</span>
+          <div class="seg" id="fov" role="group" aria-labelledby="fov-label"></div>
+        </div>
+        <p class="note">Nagyobb felbontás: élesebb kép, de nehezebb a szemüvegnek. A szélek elmosása gyorsít, ha akadozna.</p>
+      </details>
+
+      <details>
+        <summary>Irányítás</summary>
+        <dl class="keys">
+          <dt>Kard</dt>
+          <dd>A jobb kezedben van. Lendítsd át a dobozon vagy a lufiján.</dd>
+          <dt>Ravasz</dt>
+          <dd>Indítja a játékot. Játék közben a másik kéz ravasza átveszi a kardot.</dd>
+          <dt>Képernyőn</dt>
+          <dd>Kattints vagy koppints a helyes dobozra.</dd>
+        </dl>
+      </details>
+
+      <footer>
+        <span id="best"></span>
+        <span id="build"></span>
+      </footer>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
