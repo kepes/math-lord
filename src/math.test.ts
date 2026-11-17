@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_OPS, levelFor, makeChoices, makeProblem, type Level, type Op, type Rng } from './math';
+import { ALL_OPS, levelFor, makeChoices, makeProblem, reachTime, type Level, type Op, type Rng } from './math';
 
 function seeded(seed: number): Rng {
   let s = seed >>> 0;
@@ -19,6 +19,29 @@ function compute(a: number, b: number, op: Op): number {
 describe('levelFor', () => {
   it('moves up after 5 and after 15 correct answers', () => {
     expect([0, 4, 5, 14, 15, 99].map(levelFor)).toEqual([1, 1, 2, 2, 3, 3]);
+  });
+});
+
+describe('reachTime', () => {
+  it('is the same for every problem on levels 1 and 2', () => {
+    expect(reachTime(1, 1)).toBe(reachTime(1, 30));
+    expect(reachTime(2, 1)).toBe(reachTime(2, 30));
+  });
+
+  it('on level 3 goes from 19.5 s down to 5 s by the 20th problem, and stays there', () => {
+    expect(reachTime(3, 1)).toBeCloseTo(19.5);
+    expect(reachTime(3, 20)).toBeCloseTo(5);
+    expect(reachTime(3, 21)).toBeCloseTo(5);
+    expect(reachTime(3, 200)).toBeCloseTo(5);
+  });
+
+  it('speeds up a little at a time: never more than 8% between two problems', () => {
+    for (let n = 2; n <= 25; n++) {
+      const before = reachTime(3, n - 1);
+      const now = reachTime(3, n);
+      expect(now).toBeLessThanOrEqual(before);
+      expect(now).toBeGreaterThan(before * 0.92);
+    }
   });
 });
 

@@ -27,6 +27,23 @@ export function levelFor(correct: number): Level {
   return correct < LEVEL_AFTER[0] ? 1 : correct < LEVEL_AFTER[1] ? 2 : 3;
 }
 
+/** Seconds a box stays within reach once it has come up: harder numbers get more time. */
+const REACH_TIME: Record<Level, number> = { 1: 11, 2: 14.5, 3: 19.5 };
+/** …but level 3 speeds up, a little with every problem, down to this by its 20th problem. */
+const REACH_TIME_END = 5;
+const SPEED_UP_OVER = 20;
+
+/**
+ * How long a box of this problem stays within reach. `nth` counts the problems asked on the
+ * current level, from 1. On level 3 every problem leaves about 7% less time than the one before
+ * (the same share each time, so it never jumps), until the 20th leaves 5 seconds; then it stays there.
+ */
+export function reachTime(level: Level, nth: number): number {
+  if (level < 3) return REACH_TIME[level];
+  const progress = Math.min(1, Math.max(0, (nth - 1) / (SPEED_UP_OVER - 1)));
+  return REACH_TIME[3] * (REACH_TIME_END / REACH_TIME[3]) ** progress;
+}
+
 /**
  * A level only says how large the numbers may get: level 2 still throws in "3 + 2" now and then.
  * Chance of each number range (up to 10, up to 100, up to 1000) per level.

@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { sfx } from './audio';
 import { Board, drawBoxFace } from './board';
-import { ALL_OPS, levelFor, makeChoices, makeProblem, type Level, type Op, type Problem } from './math';
+import { ALL_OPS, levelFor, makeChoices, makeProblem, reachTime, type Level, type Op, type Problem } from './math';
 import type { World } from './world';
 
 export type GameState = 'idle' | 'playing' | 'resolving' | 'falling' | 'over';
@@ -32,8 +32,6 @@ const MISS_Y = 2.45;
 const FALL_SHAKE = 0.7;
 const FALL_WHITE = 3.1;
 const FALL_END = 4.2;
-/** Drift in metres per second: harder levels leave more time to think. */
-const DRIFT: Record<Level, number> = { 1: 0.25, 2: 0.19, 3: 0.14 };
 /** The blade only cuts while it moves at least this fast (m/s): resting it on a box does nothing. */
 const SWING_MIN = 0.7;
 const LIVES = 3;
@@ -192,6 +190,10 @@ export class Game {
 
   private frame = 0;
   private waveTime = 0;
+  /** How fast the boxes of this problem drift upwards (m/s). */
+  private drift = 0.25;
+  /** Problems asked so far on the current level. */
+  private asked = 0;
   private timer = 0;
   private fallTime = 0;
   private fallSpeed = 0;
@@ -293,6 +295,7 @@ export class Game {
     this.score = 0;
     this.lives = LIVES;
     this.level = 1;
+    this.asked = 0;
     this.levelUp = false;
     this.problem = null;
     sfx.start();
@@ -377,6 +380,8 @@ export class Game {
       state: this.state,
       frame: this.frame,
       waveTime: this.waveTime,
+      /** Seconds the first box of this problem stays within reach. */
+      reach: (MISS_Y - RISE_TO) / this.drift,
       /** Every box has finished shooting up. */
       risen: this.state === 'playing' && this.waveTime > (SLOTS - 1) * STAGGER_TIME + RISE_TIME + 0.2,
       score: this.score,
@@ -419,6 +424,9 @@ export class Game {
   }
 
   private nextWave(): void {
+    // how long the boxes stay within reach sets how fast they drift (see reachTime: level 3 speeds up)
+    this.asked++;
+    this.drift = (MISS_Y - RISE_TO) / reachTime(this.level, this.asked);
     this.problem = makeProblem(this.level, this.ops, Math.random, this.problem?.text);
     const choices = makeChoices(this.problem, SLOTS);
     this.correct = choices.indexOf(this.problem.answer);
@@ -461,7 +469,7 @@ export class Game {
     if (t <= 0) return RISE_FROM;
     const top = RISE_TO - c.rank * STAGGER_Y;
     if (t < RISE_TIME) return RISE_FROM + (top - RISE_FROM) * (1 - (1 - t / RISE_TIME) ** 3);
-    return top + (t - RISE_TIME) * DRIFT[this.level];
+    return top + (t - RISE_TIME) * this.drift;
   }
 
   private moveCrate(c: Crate, dt: number, time: number): void {
@@ -562,6 +570,7 @@ export class Game {
     const level = levelFor(this.score);
     if (level > this.level) {
       this.level = level;
+      this.asked = 0;
       this.levelUp = true;
       sfx.levelUp();
     }
