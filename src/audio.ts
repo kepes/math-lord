@@ -83,9 +83,9 @@ export const sfx = {
   },
   /** The whole tower going down. */
   collapse(): void {
-    noise(0, 3.2, 'lowpass', 700, 1.0, 50);
-    for (let i = 0; i < 12; i++) tone(110 - i * 5, i * 0.16, 0.26, 'triangle', 0.32, 32);
-    tone(660, 0.6, 2.2, 'sine', 0.12, 110); // the fall
+    noise(0, 4.4, 'lowpass', 700, 1.0, 50);
+    for (let i = 0; i < 14; i++) tone(110 - i * 5, i * 0.16, 0.26, 'triangle', 0.32, 32);
+    tone(760, 0.7, 3.5, 'sine', 0.12, 90); // the fall
   },
   levelUp(): void {
     [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.35 + i * 0.1, 0.34, 'square', 0.11));

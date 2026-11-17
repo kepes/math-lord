@@ -95,26 +95,35 @@ function boot(): void {
 
   // -- hands -------------------------------------------------------------------
 
+  // The sword sits in the headset's "grip" space, not on the pointing ray: the grip is the hand
+  // itself, its −z running through the fist from the little finger to the thumb – the line of the
+  // controller's handle. (On a Quest Touch controller that is 45° above where the controller
+  // points.) So the blade continues the handle exactly, whatever the controller.
   const sword = createSword();
-  // the blade leans up a little from where the controller points, like a held sword
-  sword.group.rotation.x = THREE.MathUtils.degToRad(22);
-  sword.group.position.set(0, 0, -0.03);
+  /** Extra lean of the blade, in degrees: above 0 it tips back towards the player, below 0 forward. */
+  const SWORD_TILT = 0;
+  sword.group.rotation.x = THREE.MathUtils.degToRad(SWORD_TILT);
+  // the guard just above the fist, the handle through the palm
+  sword.group.position.set(0, 0, -0.055);
   let swordHand: Hand = stored('math-lord-hand') === 'left' ? 'left' : 'right';
   const controllers = [0, 1].map((i) => {
-    const controller = renderer.xr.getController(i);
+    const controller = renderer.xr.getController(i); // events, and which hand it is
+    const grip = renderer.xr.getControllerGrip(i); // where the hand is
     const orb = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 10), new THREE.MeshPhongMaterial({ color: '#ffffff', emissive: '#22b8f0', emissiveIntensity: 0.5 }));
     orb.name = 'orb';
-    controller.add(orb);
-    scene.add(controller);
+    grip.add(orb);
+    controller.userData.grip = grip;
+    scene.add(controller, grip);
     return controller;
   });
+  const gripOf = (c: THREE.Object3D) => c.userData.grip as THREE.Group;
   const holder = () =>
     controllers.find((c) => c.userData.hand === swordHand) ?? controllers.find((c) => c.userData.hand) ?? null;
   const placeSword = () => {
     const h = holder();
-    if (h) h.add(sword.group);
+    if (h) gripOf(h).add(sword.group);
     else sword.group.removeFromParent();
-    for (const c of controllers) c.getObjectByName('orb')!.visible = !!c.userData.hand && c !== h;
+    for (const c of controllers) gripOf(c).getObjectByName('orb')!.visible = !!c.userData.hand && c !== h;
   };
   const pulse = (strength: number, ms: number) => {
     try {
@@ -234,7 +243,7 @@ function boot(): void {
     camera.aspect = w / h;
     // far enough back that all five boxes fit side by side, on a phone held upright too
     const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect);
-    const back = Math.max(1.5, 1.12 / Math.tan(half) - 0.75);
+    const back = Math.max(1.5, 1.3 / Math.tan(half) - 0.43);
     camera.position.set(0, 1.75 + (back - 1.5) * 0.1, back);
     camera.lookAt(0, 1.4, -1.2);
     camera.updateProjectionMatrix();
@@ -335,7 +344,8 @@ function boot(): void {
     if (renderer.xr.isPresenting) {
       const eye = renderer.xr.getCamera().cameras[0];
       if (eye) head.setFromMatrixPosition(eye.matrixWorld);
-      if (sword.group.parent) {
+      // a hand the headset does not see right now has no blade
+      if (sword.group.parent?.visible) {
         sword.group.updateWorldMatrix(true, false);
         game.setBlade(hilt.copy(sword.hilt).applyMatrix4(sword.group.matrixWorld), tip.copy(sword.tip).applyMatrix4(sword.group.matrixWorld));
       } else game.setBlade(null);

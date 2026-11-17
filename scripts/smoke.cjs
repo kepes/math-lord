@@ -51,23 +51,61 @@ const check = (name, ok, detail = '') => {
     await frames(3);
   };
   /** A problem is up and its boxes have finished shooting up. */
-  const risen = (what) => until(what, (s) => s.state === 'playing' && s.waveTime > 1.3, 60000);
+  const risen = (what) => until(what, (s) => s.risen, 60000);
+  /** Where the blade is relative to the controller when the controller is not turned at all (right hand). */
+  let bladeAt = null;
+  const park = (hand) =>
+    page.evaluate((hand) => {
+      const c = window.__xr.controllers[hand];
+      c.position.set(hand === 'left' ? -0.2 : 0.2, 0.9, 0.5); // behind the player, away from every box
+      c.quaternion.set(0, 0, 0, 1);
+    }, hand);
+  const measureBlade = async () => {
+    await page.evaluate(() => {
+      const c = window.__xr.controllers.right;
+      c.position.set(0, 1, -0.3);
+      c.quaternion.set(0, 0, 0, 1);
+    });
+    await frames(3);
+    return page.evaluate(() => {
+      const b = window.__mathLord.game.blade;
+      // a point 60% along the blade, and which way the blade heads over the ground
+      const mid = b.hilt.clone().lerp(b.tip, 0.6);
+      return { x: mid.x, y: mid.y - 1, z: mid.z + 0.3, heading: Math.atan2(b.tip.x - b.hilt.x, -(b.tip.z - b.hilt.z)), rise: b.tip.y - b.hilt.y };
+    });
+  };
   /** An upward slash with the given hand through the box in `slot`. */
   const slash = async (hand, slot) => {
-    for (let step = -6; step <= 2; step++) {
-      await page.evaluate(
-        ({ hand, slot, step }) => {
-          const c = window.__mathLord.game.snapshot().crates[slot];
+    // the left hand holds the sword mirrored
+    const m = hand === 'left' ? { ...bladeAt, x: -bladeAt.x, heading: -bladeAt.heading } : bladeAt;
+    // step -8 comes in from the middle of the tower, below the box; then the blade goes up through it
+    for (let step = -8; step <= 2; step++) {
+      const going = await page.evaluate(
+        ({ hand, slot, step, m }) => {
+          const game = window.__mathLord.game.snapshot();
+          const c = game.crates[slot];
+          if (game.state !== 'playing' || c.phase !== 'rise') return false; // cut: stop there
+          // turn the hand so that the blade heads for the box, and hold it so that the blade's middle is in the box
           const angle = Math.atan2(c.x, -c.z);
+          const turn = m.heading - angle;
+          const cos = Math.cos(turn);
+          const sin = Math.sin(turn);
+          const back = step === -8 ? 0.6 : 0;
           const controller = window.__xr.controllers[hand];
-          // the hand half a metre out towards the box; the blade leans up 22° and reaches the box 0.26 m higher
-          controller.position.set(Math.sin(angle) * 0.5, c.y - 0.26 + step * 0.1, -Math.cos(angle) * 0.5);
-          controller.quaternion.set(0, Math.sin(-angle / 2), 0, Math.cos(-angle / 2));
+          controller.position.set(
+            c.x - (m.x * cos + m.z * sin) - back * Math.sin(angle),
+            c.y - m.y + Math.max(step, -7) * 0.1,
+            c.z - (-m.x * sin + m.z * cos) + back * Math.cos(angle),
+          );
+          controller.quaternion.set(0, Math.sin(turn / 2), 0, Math.cos(turn / 2));
+          return true;
         },
-        { hand, slot, step },
+        { hand, slot, step, m },
       );
+      if (!going) break;
       await frames(1);
     }
+    await park(hand);
   };
 
   check('VR is offered', await page.isEnabled('#enter-vr'));
@@ -75,6 +113,9 @@ const check = (name, ok, detail = '') => {
   await page.waitForTimeout(1500);
   check('session runs', await page.evaluate(() => window.__mathLord.renderer.xr.isPresenting));
   check('title is shown first', (await snap()).state === 'idle');
+  bladeAt = await measureBlade();
+  await park('right');
+  await park('left');
 
   await trigger('right');
   let s = await until('right trigger starts the game', (s) => s.state === 'playing');
@@ -108,6 +149,7 @@ const check = (name, ok, detail = '') => {
   if (shots) await page.screenshot({ path: path.join(shots, 'vr-over.png') });
   await trigger('right');
   s = await until('trigger starts a new game', (s) => s.state === 'playing' && s.score === 0 && s.lives === 3);
+  check('the blade follows the handle, well above the pointing ray', bladeAt.rise > 0.5, `rises ${bladeAt.rise.toFixed(2)} m over its 0.85 m`);
 
   // letting the boxes fly away is a mistake too
   s = await until('boxes that fly away cost a life', (s) => s.lives === 2, 240000);

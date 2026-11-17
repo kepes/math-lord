@@ -4,8 +4,8 @@
  */
 import * as THREE from 'three';
 
-/** Height of the land under the tower. */
-export const GROUND_Y = -42;
+/** Height of the land under the tower: it is a long way down. */
+export const GROUND_Y = -110;
 const HORIZON = '#c4ecff';
 
 function seeded(seed: number): () => number {
@@ -219,10 +219,11 @@ function createClouds(): THREE.InstancedMesh {
   const rand = seeded(5);
   const matrices: THREE.Matrix4[] = [];
   const at = new THREE.Vector3();
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 32; i++) {
     const angle = rand() * Math.PI * 2;
     const dist = 38 + rand() * 170;
-    at.set(Math.cos(angle) * dist, -16 + rand() * 46, Math.sin(angle) * dist);
+    // around the player and all the way down: the fall goes through them
+    at.set(Math.cos(angle) * dist, -75 + rand() * 105, Math.sin(angle) * dist);
     // nothing drifts in front of the cloud with the problem on it
     if (at.z < 0 && Math.abs(at.x) < 0.55 * -at.z && at.y > -6) at.y = -8 - rand() * 8;
     cloudPuffs(rand, 9 + rand() * 16, matrices, at, angle + Math.PI / 2);
@@ -242,6 +243,9 @@ const OUTER = 0.98;
 const SLAB = 0.7;
 const PIECES = 9;
 const GRAVITY = 9.8;
+/** How far the top leans towards the breaking side on a mistake (radians), and for how long. */
+const LEAN = THREE.MathUtils.degToRad(2.2);
+const LEAN_TIME = 1.15;
 
 interface Piece {
   mesh: THREE.Mesh;
@@ -291,26 +295,42 @@ function ledgePiece(from: number, to: number): { geometry: THREE.BufferGeometry;
 
 function createTower(): Tower {
   const group = new THREE.Group();
+  group.name = 'tower';
   const rand = seeded(23);
   const grass = new THREE.MeshLambertMaterial({ color: '#59d936' });
   const rockColors = ['#b39a86', '#a48b78', '#c0a892'];
   const rocks = rockColors.map((color) => new THREE.MeshLambertMaterial({ color, flatShading: true }));
 
-  // the pillar: narrow under the ledge, widening down to the hill
+  // the pillar: a neck under the ledge, a shoulder, then widening down to the hill.
+  // The outline runs from the bottom up – that is what makes the surface face outwards, so the
+  // shoulder closes the tower from above once pieces of the ledge are gone.
   const core = new THREE.Group();
-  const profile = [
-    [INNER, -0.02],
+  const H = -GROUND_Y;
+  const outline: [number, number][] = [
+    [10.5, -H - 1],
+    [6.2, -H + 5],
+    [3.4, -0.74 * H],
+    [2.1, -0.52 * H],
+    [2.4, -0.38 * H],
+    [1.45, -0.22 * H],
+    [1.6, -0.1 * H],
+    [1.22, -4.5],
+    [1.04, -SLAB - 0.04],
     [INNER, -SLAB],
-    [1.02, -SLAB - 0.04],
-    [1.2, -5],
-    [1.05, -9],
-    [1.7, -16],
-    [1.5, -22],
-    [2.6, -31],
-    [5.2, GROUND_Y + 3],
-    [8.5, GROUND_Y - 1],
-  ].map(([r, y]) => new THREE.Vector2(r, y));
-  const pillar = new THREE.Mesh(new THREE.LatheGeometry(profile, 9), new THREE.MeshLambertMaterial({ color: '#a8917e', flatShading: true }));
+    [INNER, -0.02],
+  ];
+  const radiusAt = (y: number) => {
+    for (let i = 1; i < outline.length; i++) {
+      const [r0, y0] = outline[i - 1];
+      const [r1, y1] = outline[i];
+      if (y <= y1) return r0 + ((r1 - r0) * (y - y0)) / (y1 - y0);
+    }
+    return INNER;
+  };
+  const pillar = new THREE.Mesh(
+    new THREE.LatheGeometry(outline.map(([r, y]) => new THREE.Vector2(r, y)), 9),
+    new THREE.MeshLambertMaterial({ color: '#a8917e', flatShading: true }),
+  );
   const cap = new THREE.Mesh(new THREE.CircleGeometry(INNER, 9), new THREE.MeshLambertMaterial({ color: '#c9a57a' }));
   cap.rotation.x = -Math.PI / 2;
   cap.position.y = -0.02;
@@ -319,14 +339,14 @@ function createTower(): Tower {
   core.add(pillar, cap);
   // boulders sticking out of the pillar
   const boulder = new THREE.DodecahedronGeometry(1, 0);
-  for (let i = 0; i < 14; i++) {
-    const y = -2.5 - rand() * 34;
-    const t = -y / 40;
-    const r = 1.0 + t * t * 3.2;
+  for (let i = 0; i < 22; i++) {
+    const y = -2.5 - rand() * H * 0.9;
+    const t = -y / H;
+    const r = radiusAt(y) * 0.92;
     const a = rand() * Math.PI * 2;
     const m = new THREE.Mesh(boulder, rocks[i % rocks.length]);
     m.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
-    m.scale.setScalar(0.35 + rand() * 0.5 + t * 0.9);
+    m.scale.setScalar(0.35 + rand() * 0.5 + t * 1.8);
     m.rotation.set(rand() * 3, rand() * 3, rand() * 3);
     core.add(m);
   }
@@ -348,6 +368,9 @@ function createTower(): Tower {
 
   let coreFalling = false;
   let coreSpeed = 0;
+  // the lean: around the middle of the top, so the floor tips but does not slide away
+  const leanAxis = new THREE.Vector3(1, 0, 0);
+  let leanTime = LEAN_TIME;
 
   const drop = (piece: Piece, delay: number) => {
     if (piece.falling) return;
@@ -363,6 +386,10 @@ function createTower(): Tower {
       // pieces 0-2 are ahead on the right, 6-8 ahead on the left: the first two mistakes are seen
       const first = stage === 0 ? 0 : 6;
       for (let i = 0; i < 3; i++) drop(pieces[first + i], i * 0.16);
+      // the top dips towards the breaking side: turn around the level axis square to it
+      const out = pieces[first + 1].out;
+      leanAxis.set(out.z, 0, -out.x);
+      leanTime = 0;
     },
     collapse() {
       pieces.forEach((p, i) => drop(p, (i % 3) * 0.1));
@@ -379,8 +406,16 @@ function createTower(): Tower {
       coreFalling = false;
       core.position.set(0, 0, 0);
       core.rotation.set(0, 0, 0);
+      leanTime = LEAN_TIME;
+      group.quaternion.identity();
     },
     update(dt) {
+      if (leanTime < LEAN_TIME) {
+        // out quickly, back slowly, once – no swinging to and fro
+        leanTime = Math.min(LEAN_TIME, leanTime + dt);
+        const u = leanTime / LEAN_TIME;
+        group.quaternion.setFromAxisAngle(leanAxis, LEAN * Math.sin(Math.PI * u ** 0.6));
+      }
       for (const p of pieces) {
         if (!p.falling || !p.mesh.visible) continue;
         if (p.delay > 0) {

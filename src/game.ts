@@ -15,7 +15,7 @@ export type Mode = 'screen' | 'vr';
 const SLOTS = 5;
 /** The boxes rise on an arc in front of the player, just beyond the edge of the tower. */
 const RADIUS = 1.15;
-const SPREAD = THREE.MathUtils.degToRad(25);
+const SPREAD = THREE.MathUtils.degToRad(34);
 const BOX = 0.3;
 const BALLOON_Y = 0.74;
 const BALLOON_R = 0.2;
@@ -23,8 +23,15 @@ const BALLOON_R = 0.2;
 const RISE_FROM = -3.2;
 const RISE_TO = -0.3;
 const RISE_TIME = 1;
-/** Above this height they are out of reach: gone. */
+/** The boxes do not come up together: each one starts a little later and hangs a little lower than the one before. */
+const STAGGER_TIME = 0.35;
+const STAGGER_Y = 0.2;
+/** Above this height a box is out of reach: once the right one is up there, the problem is lost. */
 const MISS_Y = 2.45;
+/** The fall: the tower shakes, then the player drops; the picture whites out before the end. */
+const FALL_SHAKE = 0.7;
+const FALL_WHITE = 3.1;
+const FALL_END = 4.2;
 /** Drift in metres per second: harder levels leave more time to think. */
 const DRIFT: Record<Level, number> = { 1: 0.25, 2: 0.19, 3: 0.14 };
 /** The blade only cuts while it moves at least this fast (m/s): resting it on a box does nothing. */
@@ -46,7 +53,8 @@ interface Crate {
   color: THREE.Color;
   value: number;
   phase: Phase;
-  offset: number;
+  /** Place in the order the boxes come up: 0 is first and highest. */
+  rank: number;
   wobble: number;
   speed: number;
 }
@@ -236,7 +244,7 @@ export class Game {
       group.add(box, balloon, string);
       group.visible = false;
       scene.add(group);
-      this.crates.push({ group, box, balloon, canvas, texture, side, plain, skin, color: new THREE.Color(), value: 0, phase: 'off', offset: 0, wobble: 0, speed: 0 });
+      this.crates.push({ group, box, balloon, canvas, texture, side, plain, skin, color: new THREE.Color(), value: 0, phase: 'off', rank: 0, wobble: 0, speed: 0 });
     }
 
     const halfGeometry = new THREE.BoxGeometry(BOX / 2, BOX, BOX);
@@ -302,7 +310,7 @@ export class Game {
 
   /** What a click on the flat screen can hit: boxes and balloons, each tagged with its slot. */
   targets(): THREE.Object3D[] {
-    return this.crates.filter((c) => c.phase === 'rise').flatMap((c) => [c.box, c.balloon]);
+    return this.crates.filter((c) => c.phase === 'rise' && this.age(c) > 0.35).flatMap((c) => [c.box, c.balloon]);
   }
 
   /** A click or tap on a box (flat screen). */
@@ -330,7 +338,7 @@ export class Game {
 
     if (this.state === 'playing') {
       this.waveTime += dt;
-      if (this.height() > MISS_Y) this.mistake();
+      if (this.height(this.crates[this.correct]) > MISS_Y) this.mistake();
     } else if (this.state === 'resolving') {
       this.timer -= dt;
       if (this.timer <= 0) {
@@ -369,6 +377,8 @@ export class Game {
       state: this.state,
       frame: this.frame,
       waveTime: this.waveTime,
+      /** Every box has finished shooting up. */
+      risen: this.state === 'playing' && this.waveTime > (SLOTS - 1) * STAGGER_TIME + RISE_TIME + 0.2,
       score: this.score,
       lives: this.lives,
       level: this.level,
@@ -411,6 +421,7 @@ export class Game {
     const choices = makeChoices(this.problem, SLOTS);
     this.correct = choices.indexOf(this.problem.answer);
     const colors = [...COLORS].sort(() => Math.random() - 0.5);
+    const order = this.crates.map((_, i) => i).sort(() => Math.random() - 0.5);
     this.crates.forEach((c, i) => {
       const angle = (i - (SLOTS - 1) / 2) * SPREAD;
       c.value = choices[i];
@@ -426,7 +437,7 @@ export class Game {
       c.group.visible = true;
       c.box.visible = c.balloon.visible = true;
       c.phase = 'rise';
-      c.offset = Math.random() * 0.26;
+      c.rank = order[i];
       c.wobble = Math.random() * 6.28;
       c.speed = 0;
     });
@@ -437,18 +448,25 @@ export class Game {
     this.setState('playing');
   }
 
-  /** Height of the set of boxes since they appeared. */
-  private height(): number {
-    const t = this.waveTime;
-    if (t < RISE_TIME) return RISE_FROM + (RISE_TO - RISE_FROM) * (1 - (1 - t / RISE_TIME) ** 3);
-    return RISE_TO + (t - RISE_TIME) * DRIFT[this.level];
+  /** How long a box has been on its way. */
+  private age(c: Crate): number {
+    return this.waveTime - c.rank * STAGGER_TIME;
+  }
+
+  /** Height of a box: it waits its turn below, shoots up, then drifts. */
+  private height(c: Crate): number {
+    const t = this.age(c);
+    if (t <= 0) return RISE_FROM;
+    const top = RISE_TO - c.rank * STAGGER_Y;
+    if (t < RISE_TIME) return RISE_FROM + (top - RISE_FROM) * (1 - (1 - t / RISE_TIME) ** 3);
+    return top + (t - RISE_TIME) * DRIFT[this.level];
   }
 
   private moveCrate(c: Crate, dt: number, time: number): void {
     if (c.phase === 'off') return;
     const g = c.group;
     if (c.phase === 'rise' || c.phase === 'pulse') {
-      if (this.state === 'playing') g.position.y = this.height() + c.offset + Math.sin(time * 1.7 + c.wobble) * 0.02;
+      if (this.state === 'playing') g.position.y = this.height(c) + Math.sin(time * 1.7 + c.wobble) * 0.02;
       g.rotation.z = Math.sin(time * 1.3 + c.wobble) * 0.05;
       if (c.phase === 'pulse') g.scale.setScalar(1 + 0.2 * Math.abs(Math.sin(time * 6)));
     } else if (c.phase === 'shrink') {
@@ -485,10 +503,10 @@ export class Game {
       b.swing = 0;
     }
     b.swing = Math.max(b.tip.distanceTo(b.lastTip) / Math.max(dt, 1e-3), b.swing * 0.8);
-    if (this.state === 'playing' && this.waveTime > 0.35 && b.swing >= SWING_MIN) {
+    if (this.state === 'playing' && b.swing >= SWING_MIN) {
       for (let i = 0; i < this.crates.length; i++) {
         const c = this.crates[i];
-        if (c.phase !== 'rise') continue;
+        if (c.phase !== 'rise' || this.age(c) < 0.35) continue;
         const box = c.group.position;
         const balloon = this.v2.copy(box).setY(box.y + BALLOON_Y);
         // the blade as it is now, and the path its tip took since the last frame
@@ -600,7 +618,7 @@ export class Game {
   private fall(dt: number): void {
     this.fallTime += dt;
     const group = this.world.group;
-    if (this.fallTime < 0.7) {
+    if (this.fallTime < FALL_SHAKE) {
       // the ground shakes before it gives way
       group.position.x = (Math.random() - 0.5) * 0.02;
       group.position.z = (Math.random() - 0.5) * 0.02;
@@ -610,8 +628,8 @@ export class Game {
       this.fallSpeed += 9.8 * dt;
       group.position.y += this.fallSpeed * dt;
     }
-    this.veilAlpha = THREE.MathUtils.smoothstep(this.fallTime, 1.7, 2.5);
-    if (this.fallTime >= 2.7) {
+    this.veilAlpha = THREE.MathUtils.smoothstep(this.fallTime, FALL_WHITE, FALL_END - 0.2);
+    if (this.fallTime >= FALL_END) {
       group.position.set(0, 0, 0);
       this.world.tower.reset();
       this.clearCrates();

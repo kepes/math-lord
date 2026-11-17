@@ -25,5 +25,7 @@ right one has to be cut with a sword. Plain three.js + TypeScript + Vite, no fra
 - `src/math.ts` – problems, levels, wrong answers. `src/game.ts` – the round, boxes, sword, hits.
 - `src/world.ts` – sky, land, clouds, tower. `src/board.ts` – the writing on the cloud and on the boxes.
 - `src/main.ts` – page, renderer, headset session, controllers, screen (mouse / touch) mode.
+- The sword hangs on the headset's grip space (`getControllerGrip`), blade along its −z: the line of
+  the controller's handle, 45° above the pointing ray on a Quest. `SWORD_TILT` in `src/main.ts` leans it.
 - Headset picture settings (resolution steps, foveation off by default, single-sample crisp shadow,
   `local-floor`) come from the Gardrób VR viewer in kepes/online-cabinet.
