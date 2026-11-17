@@ -252,9 +252,20 @@ function createClouds(): THREE.InstancedMesh {
 // Tower
 // ---------------------------------------------------------------------------
 
+/** The standing place that never breaks off: the blunt tip of the rock needle. */
 const INNER = 0.42;
 const OUTER = 0.98;
-const SLAB = 0.7;
+/**
+ * The ledge around the tip, in cross-section: a wedge. A thin rim at the outer edge, deep where it
+ * leans on the needle. Under a piece that has fallen there is no shelf left – only the steep side
+ * of the needle and the drop.
+ */
+const RIM = 0.16;
+const RIM_RADIUS = 0.93;
+const ROOT = 1.25;
+const ROOT_RADIUS = 0.4;
+/** The pieces reach a little into the needle, so no gap shows between the two. */
+const TUCK = 0.38;
 const PIECES = 9;
 const GRAVITY = 9.8;
 /**
@@ -289,28 +300,45 @@ export interface Tower {
   leanAngle(): number;
 }
 
-/** One piece of the ledge around the top: a ring segment, grass on top. */
+/** One piece of the ledge around the tip: a ring segment, a wedge in cross-section, grass on top. */
 function ledgePiece(from: number, to: number): { geometry: THREE.BufferGeometry; centre: THREE.Vector3; out: THREE.Vector3 } {
-  const shape = new THREE.Shape();
   const steps = 5;
-  // angle 0 looks ahead (−z); shape y becomes world z
-  for (let i = 0; i <= steps; i++) {
-    const a = from + ((to - from) * i) / steps;
-    const p: [number, number] = [OUTER * Math.sin(a), -OUTER * Math.cos(a)];
-    if (i === 0) shape.moveTo(...p);
-    else shape.lineTo(...p);
-  }
-  for (let i = steps; i >= 0; i--) {
-    const a = from + ((to - from) * i) / steps;
-    shape.lineTo(INNER * Math.sin(a), -INNER * Math.cos(a));
-  }
-  shape.closePath();
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: SLAB, bevelEnabled: false });
-  geometry.rotateX(Math.PI / 2); // shape (x, y) → world (x, z), the depth goes down from y = 0
   const mid = (from + to) / 2;
-  const r = (INNER + OUTER) / 2;
-  const centre = new THREE.Vector3(r * Math.sin(mid), -SLAB / 2, -r * Math.cos(mid));
-  geometry.translate(-centre.x, -centre.y, -centre.z);
+  const centre = new THREE.Vector3(0.66 * Math.sin(mid), -0.3, -0.66 * Math.cos(mid));
+  // angle 0 looks ahead (−z)
+  const at = (a: number, r: number, y: number) => new THREE.Vector3(r * Math.sin(a), y, -r * Math.cos(a));
+  const positions: number[] = [];
+  const n = new THREE.Vector3();
+  const e1 = new THREE.Vector3();
+  const e2 = new THREE.Vector3();
+  const m = new THREE.Vector3();
+  /** A four-cornered face; turned so that it looks away from the middle of the piece. */
+  const face = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3) => {
+    n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a));
+    m.addVectors(a, c).multiplyScalar(0.5).sub(centre);
+    const corners = n.dot(m) >= 0 ? [a, b, c, a, c, d] : [a, c, b, a, d, c];
+    for (const v of corners) positions.push(v.x - centre.x, v.y - centre.y, v.z - centre.z);
+  };
+  const ring = (r: number, y: number) => Array.from({ length: steps + 1 }, (_, i) => at(from + ((to - from) * i) / steps, r, y));
+  const topIn = ring(TUCK, 0);
+  const topOut = ring(OUTER, 0);
+  const rimOut = ring(RIM_RADIUS, -RIM);
+  const rootIn = ring(ROOT_RADIUS, -ROOT);
+  // the grass first: it gets its own material
+  for (let i = 0; i < steps; i++) face(topIn[i], topOut[i], topOut[i + 1], topIn[i + 1]);
+  const grassVertices = positions.length / 3;
+  for (let i = 0; i < steps; i++) {
+    face(topOut[i], rimOut[i], rimOut[i + 1], topOut[i + 1]); // the rim
+    face(rimOut[i], rootIn[i], rootIn[i + 1], rimOut[i + 1]); // the slanting underside
+    face(rootIn[i], topIn[i], topIn[i + 1], rootIn[i + 1]); // the side against the needle
+  }
+  face(topIn[0], topOut[0], rimOut[0], rootIn[0]);
+  face(topIn[steps], topOut[steps], rimOut[steps], rootIn[steps]);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.addGroup(0, grassVertices, 0);
+  geometry.addGroup(grassVertices, positions.length / 3 - grassVertices, 1);
+  geometry.computeVertexNormals();
   return { geometry, centre, out: new THREE.Vector3(Math.sin(mid), 0, -Math.cos(mid)) };
 }
 
@@ -322,9 +350,9 @@ function createTower(): Tower {
   const rockColors = ['#b39a86', '#a48b78', '#c0a892'];
   const rocks = rockColors.map((color) => new THREE.MeshLambertMaterial({ color, flatShading: true }));
 
-  // the pillar: a neck under the ledge, a shoulder, then widening down to the hill.
-  // The outline runs from the bottom up – that is what makes the surface face outwards, so the
-  // shoulder closes the tower from above once pieces of the ledge are gone.
+  // the pillar: a needle whose blunt tip is the standing place, widening down to the hill. Near the
+  // top it stays slim enough that someone looking down past the tip sees the drop, not rock.
+  // The outline runs from the bottom up – that is what makes the surface face outwards.
   const core = new THREE.Group();
   const H = -GROUND_Y;
   const outline: [number, number][] = [
@@ -334,10 +362,9 @@ function createTower(): Tower {
     [2.1, -0.52 * H],
     [2.4, -0.38 * H],
     [1.45, -0.22 * H],
-    [1.6, -0.1 * H],
-    [1.22, -4.5],
-    [1.04, -SLAB - 0.04],
-    [INNER, -SLAB],
+    [1.5, -0.1 * H],
+    [0.82, -4.5],
+    [0.55, -ROOT],
     [INNER, -0.02],
   ];
   const radiusAt = (y: number) => {
@@ -361,7 +388,7 @@ function createTower(): Tower {
   // boulders sticking out of the pillar
   const boulder = new THREE.DodecahedronGeometry(1, 0);
   for (let i = 0; i < 22; i++) {
-    const y = -2.5 - rand() * H * 0.9;
+    const y = -16 - rand() * H * 0.78; // none near the top: nothing to hide the drop
     const t = -y / H;
     const r = radiusAt(y) * 0.92;
     const a = rand() * Math.PI * 2;
