@@ -116,11 +116,25 @@ function createLand(): THREE.Group {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
-  group.add(new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
-
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshLambertMaterial({ color: '#12b4ff', emissive: '#0a4fd0', emissiveIntensity: 0.25 }));
-  water.rotation.x = -Math.PI / 2;
-  group.add(water);
+  // Water is not a surface of its own: a flat sheet meets the shore at such a shallow angle that,
+  // from up here, the depth buffer cannot tell which of the two is in front, and the shoreline
+  // flickers. Instead the land is painted as water wherever it lies below the water level – one
+  // surface, and the shoreline is exactly the line of height 0. Paler in the shallows.
+  const land = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  land.onBeforeCompile = (shader) => {
+    shader.uniforms.uShallow = { value: new THREE.Color('#6fe0ff') };
+    shader.uniforms.uDeep = { value: new THREE.Color('#14aaff') };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vLandY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLandY = position.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vLandY;\nuniform vec3 uShallow;\nuniform vec3 uDeep;')
+      .replace(
+        '#include <opaque_fragment>',
+        '#include <opaque_fragment>\nif ( vLandY < 0.0 ) gl_FragColor.rgb = mix( uShallow, uDeep, smoothstep( 0.0, 2.2, - vLandY ) );',
+      );
+  };
+  group.add(new THREE.Mesh(geometry, land));
 
   // trees: round ones and pines, a trunk each
   const count = 420;

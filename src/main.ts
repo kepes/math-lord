@@ -87,7 +87,8 @@ function boot(): void {
   sc.far = 16;
   scene.add(sun, sun.target);
 
-  const camera = new THREE.PerspectiveCamera(62, 1, 0.05, 1500);
+  // the near plane no closer than needed: every halving of it halves the depth precision far away
+  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1300);
   scene.add(camera);
 
   let presenting = false;
